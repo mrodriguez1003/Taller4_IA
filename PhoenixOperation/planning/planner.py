@@ -190,6 +190,14 @@ def regress(goal_set: State, action: Action) -> State | None:
          Check relevance first, then check for contradictions, then compute.
     """
     ### Your code here ###
+    #Probar relevancia
+    if not (action.add_list & goal_set):
+        return None
+    #Probar que no haya contradicciones
+    if action.del_list & goal_set:
+        return None
+    #Regresión:
+    return (goal_set - action.add_list) | action.precond_pos
 
     ### End of your code ###
 
@@ -213,6 +221,60 @@ def backwardSearch(problem: Problem) -> list[Action]:
          Pickable) that are false in the initial state — these are dead ends.
     """
     ### Your code here ###
+    
+    initial_state = problem.initial_state
+    goal= problem.goal
+    
+    #Predicados estaticos
+    static_predicates= {"MedicalPost", "Adjacent", "Pickable", "Free"}
+    
+    #Probar si la meta ya se cumple
+    if goal.issubset(initial_state):
+        return []
+    
+    #Obtner de una vez todas las acciones 
+    all_actions= get_all_groundings(problem.domain, problem.objects)
+    
+    #Filtrar
+    frontier = Queue()
+    frontier.push((goal, []))
+    visited = {goal}
+    MAX_VISITED= 50000 #Limite para evitar loops infinitos en casos sin solución
+    
+    while not frontier.isEmpty():
+        if len (visited)> MAX_VISITED:
+            break
+        current_goal, forward_plan = frontier.pop()
+        
+        #Solo considerar las acciones relevantes
+        for action in all_actions:
+            if not (action.add_list & current_goal):
+                continue
+            
+            regressed= regress(current_goal, action)
+            if regressed is None:
+                continue
+            
+            #Descartar metas con predicados estaticos falsos en el estado inicial
+            dead_end = any(
+                f[0] in static_predicates and f not in initial_state
+                for f in regressed
+            )
+            if dead_end:
+                continue
+            
+            #No permitir que la meta se vuelva más grande (evitar loops)
+            if len(regressed) > len(initial_state):
+                continue
+            
+            new_plan = [action] + forward_plan
+            if regressed.issubset(initial_state):
+                return new_plan
+            if regressed not in visited:
+                visited.add(regressed)
+                frontier.push((regressed, new_plan))
+    return []
+                    
 
     ### End of your code ###
 
@@ -242,6 +304,37 @@ def aStarPlanner(
          Track the best g-cost seen for each state to avoid stale expansions.
     """
     ### Your code here ###
+    
+    start_state = problem.getStartState()
+    
+    if problem.isGoalState(start_state):
+        return []
+    
+    h0= heuristic(start_state, problem.goal, problem.domain, problem.objects)
+    frontier = PriorityQueue()
+    frontier.push((start_state, []), h0)
+    
+    #mejor costo encontrado para cada estado
+    best_g: dict = { start_state:0}
+    while not frontier.isEmpty():
+        state, plan= frontier.pop()
+        g= len(plan)
+        
+        #Stale expansion check
+        if g> best_g.get(state, float('inf')):
+            continue
+        
+        if problem.isGoalState(state):
+            return plan
+        
+        for next_state, action, cost in problem.getSuccessors(state):
+            new_g= g + cost
+            if new_g < best_g.get(next_state, float('inf')):
+                best_g[next_state] = new_g
+                h= heuristic(next_state, problem.goal, problem.domain, problem.objects)
+                priority= new_g + h
+                frontier.push((next_state, plan + [action]), priority)
+    return []
 
     ### End of your code ###
 
