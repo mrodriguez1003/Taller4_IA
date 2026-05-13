@@ -1,4 +1,5 @@
 from __future__ import annotations
+from asyncio import Queue
 
 from planning.pddl import Action, Problem, apply_action, is_applicable
 
@@ -63,7 +64,34 @@ def hierarchicalSearch(problem: Problem, hlas: list[HLA]) -> list[Action]:
          To simulate execution, apply each action in order using apply_action().
     """
     ### Your code here ###
-
+    top_level_hla = hlas[0]
+    initial_plan = [top_level_hla]
+    frontier = Queue()
+    frontier.push(initial_plan)
+ 
+    while not frontier.isEmpty():
+        plan = frontier.pop()
+        first_hla_idx = None
+        for i, step in enumerate(plan):
+            if not is_primitive(step):
+                first_hla_idx = i
+                break
+        if first_hla_idx is None:
+            state = problem.initial_state
+            valid = True
+            for action in plan:
+                if not is_applicable(state, action):
+                    valid = False
+                    break
+                state = apply_action(state, action)
+            if valid and problem.isGoalState(state):
+                return plan
+            continue
+        hla_to_expand = plan[first_hla_idx]
+        for refinement in hla_to_expand.refinements:
+            new_plan = plan[:first_hla_idx] + refinement + plan[first_hla_idx + 1:]
+            frontier.push(new_plan)
+    return []
     ### End of your code ###
 
 
