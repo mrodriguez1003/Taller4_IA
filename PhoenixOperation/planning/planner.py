@@ -202,88 +202,163 @@ def regress(goal_set: State, action: Action) -> State | None:
     ### End of your code ###
 
 
-def backwardSearch(problem: Problem) -> list[Action]:
-    """
-    Backward search (regression search) from the goal.
-
-    Start from the goal description and apply action regressions until
-    the resulting goal is satisfied by the initial state.
-
-    Returns a list of Action objects forming a valid plan (in forward order),
-    or [] if no plan exists.
-
-    Tip: The "state" in backward search is a frozenset of fluents that must
-         be true (a partial goal description). The initial state is reached
-         when all fluents in the current goal are satisfied by problem.initial_state.
-         Only consider actions whose add_list has at least one unsatisfied goal fluent
-         (relevant actions). Use regress() to compute the new subgoal.
-         Skip subgoals that contain static predicates (MedicalPost, Adjacent,
-         Pickable) that are false in the initial state — these are dead ends.
-    """
-    ### Your code here ###
-    
-    initial_state = problem.initial_state
-    goal= problem.goal
-    
-    #Predicados estaticos
-    static_predicates= {"MedicalPost", "Adjacent", "Pickable", "Free"}
-    
-    #Probar si la meta ya se cumple
-    if goal.issubset(initial_state):
-        return []
-    
-    #Obtner de una vez todas las acciones 
-    all_actions= get_all_groundings(problem.domain, problem.objects)
-    
-    #Filtrar
-    frontier = Queue()
-    frontier.push((goal, []))
-    visited = {goal}
-    MAX_VISITED= 50000 #Limite para evitar loops infinitos en casos sin solución
-    
-    while not frontier.isEmpty():
-        if len (visited)> MAX_VISITED:
-            break
-        current_goal, forward_plan = frontier.pop()
-        
-        #Solo considerar las acciones relevantes
-        for action in all_actions:
-            if not (action.add_list & current_goal):
-                continue
-            
-            regressed= regress(current_goal, action)
-            if regressed is None:
-                continue
-            
-            #Descartar metas con predicados estaticos falsos en el estado inicial
-            dead_end = any(
-                f[0] in static_predicates and f not in initial_state
-                for f in regressed
-            )
-            if dead_end:
-                continue
-            
-            #No permitir que la meta se vuelva más grande (evitar loops)
-            if len(regressed) > len(initial_state):
-                continue
-            
-            new_plan = [action] + forward_plan
-            if regressed.issubset(initial_state):
-                return new_plan
-            if regressed not in visited:
-                visited.add(regressed)
-                frontier.push((regressed, new_plan))
-    return []
-                    
-
-    ### End of your code ###
-
-
+# def backwardSearch(problem: Problem) -> list[Action]:
+#     """
+#     Backward search (regression search) from the goal.
+# 
+#     Start from the goal description and apply action regressions until
+#     the resulting goal is satisfied by the initial state.
+# 
+#     Returns a list of Action objects forming a valid plan (in forward order),
+#     or [] if no plan exists.
+# 
+#     Tip: The "state" in backward search is a frozenset of fluents that must
+#          be true (a partial goal description). The initial state is reached
+#          when all fluents in the current goal are satisfied by problem.initial_state.
+#          Only consider actions whose add_list has at least one unsatisfied goal fluent
+#          (relevant actions). Use regress() to compute the new subgoal.
+#          Skip subgoals that contain static predicates (MedicalPost, Adjacent,
+#          Pickable) that are false in the initial state — these are dead ends.
+#     """
+#     ### Your code here ###
+#     
+#     initial_state = problem.initial_state
+#     goal= problem.goal
+#     
+#     #Predicados estaticos
+#     static_predicates= {"MedicalPost", "Adjacent", "Pickable", "Free"}
+#     
+#     #Probar si la meta ya se cumple
+#     if goal.issubset(initial_state):
+#         return []
+#     
+#     #Obtner de una vez todas las acciones 
+#     all_actions= get_all_groundings(problem.domain, problem.objects)
+#     
+#     #Filtrar
+#     frontier = Queue()
+#     frontier.push((goal, []))
+#     visited = {goal}
+#     MAX_VISITED= 50000 #Limite para evitar loops infinitos en casos sin solución
+#     
+#     while not frontier.isEmpty():
+#         if len (visited)> MAX_VISITED:
+#             break
+#         current_goal, forward_plan = frontier.pop()
+#         
+#         #Solo considerar las acciones relevantes
+#         for action in all_actions:
+#             if not (action.add_list & current_goal):
+#                 continue
+#             
+#             regressed= regress(current_goal, action)
+#             if regressed is None:
+#                 continue
+#             
+#             #Descartar metas con predicados estaticos falsos en el estado inicial
+#             dead_end = any(
+#                 f[0] in static_predicates and f not in initial_state
+#                 for f in regressed
+#             )
+#             if dead_end:
+#                 continue
+#             
+#             #No permitir que la meta se vuelva más grande (evitar loops)
+#             if len(regressed) > len(initial_state):
+#                 continue
+#             
+#             new_plan = [action] + forward_plan
+#             if regressed.issubset(initial_state):
+#                 return new_plan
+#             if regressed not in visited:
+#                 visited.add(regressed)
+#                 frontier.push((regressed, new_plan))
+#     return []
+#                     
+# 
+#     ### End of your code ###
+# 
+# 
 # ---------------------------------------------------------------------------
 # Punto 4 – A* Planner
 # ---------------------------------------------------------------------------
+# 
 
-# Heuristic signature:  heuristic(state, goal, domain, objects) -> float
+def backwardSearch(problem: Problem) -> list[Action]:
+    initial_state = problem.initial_state
+    goal = problem.goal
+
+    if goal.issubset(initial_state):
+        return []
+
+    all_actions = get_all_groundings(problem.domain, problem.objects)
+    static_predicates = {"MedicalPost", "Adjacent", "Pickable"}
+
+    frontier = Queue()
+    frontier.push((goal, []))
+    visited = {goal}
+    max_regressed_goals = 50000
+
+    while not frontier.isEmpty():
+        if len(visited) > max_regressed_goals:
+            return []
+
+        current_goal, forward_plan = frontier.pop()
+        unsatisfied_goal = current_goal - initial_state
+
+        for action in all_actions:
+            if not (action.add_list & unsatisfied_goal):
+                continue
+
+            regressed = regress(current_goal, action)
+            if regressed is None or regressed in visited:
+                continue
+
+            if _has_false_static_fluent(regressed, initial_state, static_predicates):
+                continue
+            if _has_conflicting_positive_fluents(regressed):
+                continue
+
+            new_plan = [action] + forward_plan
+            if regressed.issubset(initial_state):
+                return new_plan
+
+            visited.add(regressed)
+            frontier.push((regressed, new_plan))
+
+    return []
+
+
+def _has_false_static_fluent(
+    goal_set: State,
+    initial_state: State,
+    static_predicates: set[str],
+) -> bool:
+    return any(
+        fluent[0] in static_predicates and fluent not in initial_state
+        for fluent in goal_set
+    )
+
+
+def _has_conflicting_positive_fluents(goal_set: State) -> bool:
+    at_locations: dict[object, object] = {}
+    holding_objects: set[object] = set()
+    hands_free = False
+
+    for fluent in goal_set:
+        predicate = fluent[0]
+        if predicate == "At":
+            entity, location = fluent[1], fluent[2]
+            if entity in at_locations and at_locations[entity] != location:
+                return True
+            at_locations[entity] = location
+        elif predicate == "Holding":
+            holding_objects.add(fluent[2])
+        elif predicate == "HandsFree":
+            hands_free = True
+
+    return hands_free and bool(holding_objects)
+
 Heuristic = Callable[[State, State, list[ActionSchema], Objects], float]
 
 
@@ -342,5 +417,6 @@ def aStarPlanner(
 # Aliases used by the command-line argument parser
 tinyBaseSearch = tinyBaseSearch
 forwardBFS = forwardBFS
+forwardSearch = forwardBFS
 backwardSearch = backwardSearch
 aStarPlanner = aStarPlanner

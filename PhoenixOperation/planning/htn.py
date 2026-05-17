@@ -1,5 +1,7 @@
 from __future__ import annotations
-from asyncio import Queue
+# Previous code kept for traceability:
+# from asyncio import Queue
+from planning.utils import Queue
 
 from planning.pddl import Action, Problem, apply_action, is_applicable
 
@@ -117,5 +119,169 @@ def build_htn_hierarchy(problem: Problem) -> list[HLA]:
          with primitive PickUp, SetupSupplies, PutDown, and Rescue actions.
     """
     ### Your code here ###
+    #
+    # ### Your code here ###
+    #
 
+
+    layout = problem.layout
+    if not problem.objects["patients"]:
+        return []
+    if not problem.objects["supplies"] or not problem.objects["medical_posts"]:
+        return []
+
+    robot = problem.objects["robots"][0]
+    medical_post = problem.objects["medical_posts"][0]
+    supply = problem.objects["supplies"][0]
+
+    positions = {
+        fluent[1]: fluent[2]
+        for fluent in problem.initial_state
+        if fluent[0] == "At"
+    }
+
+    adjacent = {}
+    for cell in layout.get_all_cells():
+        adjacent[cell] = []
+    for a, b in layout.get_adjacent_pairs():
+        adjacent[a].append(b)
+        adjacent[b].append(a)
+
+    def find_path(start, goal):
+        frontier = Queue()
+        frontier.push(start)
+        parent = {start: None}
+
+        while not frontier.isEmpty():
+            cell = frontier.pop()
+            if cell == goal:
+                break
+            for next_cell in adjacent[cell]:
+                if next_cell not in parent:
+                    parent[next_cell] = cell
+                    frontier.push(next_cell)
+
+        if goal not in parent:
+            return []
+
+        path = []
+        cell = goal
+        while cell is not None:
+            path.append(cell)
+            cell = parent[cell]
+        path.reverse()
+        return path
+
+    def move_actions(start, goal):
+        path = find_path(start, goal)
+        actions = []
+        for from_cell, to_cell in zip(path, path[1:]):
+            actions.append(
+                Action(
+                    f"Move({robot}, {from_cell}, {to_cell})",
+                    [
+                        ("At", robot, from_cell),
+                        ("Adjacent", from_cell, to_cell),
+                        ("Free", to_cell),
+                    ],
+                    [],
+                    [("At", robot, to_cell), ("Free", from_cell)],
+                    [("At", robot, from_cell), ("Free", to_cell)],
+                )
+            )
+        return actions
+
+    current = positions[robot]
+
+    prepare_actions: list[Action] = []
+    supply_loc = positions[supply]
+    prepare_actions += move_actions(current, supply_loc)
+    current = supply_loc
+    prepare_actions.append(
+        Action(
+            f"PickUp({robot}, {supply}, {current})",
+            [
+                ("At", robot, current),
+                ("At", supply, current),
+                ("HandsFree", robot),
+                ("Pickable", supply),
+            ],
+            [],
+            [("Holding", robot, supply)],
+            [("At", supply, current), ("HandsFree", robot)],
+        )
+    )
+    prepare_actions += move_actions(current, medical_post)
+    current = medical_post
+    prepare_actions.append(
+        Action(
+            f"SetupSupplies({robot}, {supply}, {medical_post})",
+            [
+                ("At", robot, medical_post),
+                ("Holding", robot, supply),
+                ("MedicalPost", medical_post),
+            ],
+            [],
+            [("SuppliesReady", medical_post), ("HandsFree", robot)],
+            [("Holding", robot, supply)],
+        )
+    )
+
+    prepare_supplies = HLA(
+        f"PrepareSupplies({supply},{medical_post})",
+        [prepare_actions],
+    )
+
+    mission_steps: list[HLA] = [prepare_supplies]
+    for patient in problem.objects["patients"]:
+        patient_loc = positions[patient]
+        patient_actions: list[Action] = []
+        patient_actions += move_actions(current, patient_loc)
+        current = patient_loc
+        patient_actions.append(
+            Action(
+                f"PickUp({robot}, {patient}, {current})",
+                [
+                    ("At", robot, current),
+                    ("At", patient, current),
+                    ("HandsFree", robot),
+                    ("Pickable", patient),
+                ],
+                [],
+                [("Holding", robot, patient)],
+                [("At", patient, current), ("HandsFree", robot)],
+            )
+        )
+        patient_actions += move_actions(current, medical_post)
+        current = medical_post
+        patient_actions.append(
+            Action(
+                f"PutDown({robot}, {patient}, {medical_post})",
+                [("At", robot, medical_post), ("Holding", robot, patient)],
+                [],
+                [("At", patient, medical_post), ("HandsFree", robot)],
+                [("Holding", robot, patient)],
+            )
+        )
+        patient_actions.append(
+            Action(
+                f"Rescue({robot}, {patient}, {medical_post})",
+                [
+                    ("At", robot, medical_post),
+                    ("At", patient, medical_post),
+                    ("MedicalPost", medical_post),
+                    ("SuppliesReady", medical_post),
+                ],
+                [],
+                [("Rescued", patient)],
+                [("At", patient, medical_post)],
+            )
+        )
+
+        mission_steps.append(
+            HLA(f"ExtractPatient({patient},{medical_post})", [patient_actions])
+        )
+
+    root = HLA("FullRescueMission", [mission_steps])
+    return [root]
     ### End of your code ###
